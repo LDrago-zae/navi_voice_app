@@ -6,16 +6,13 @@ class MapboxService {
   MapboxService(this.apiKey);
 
   Future<List<MapBoxPlace>> searchPlaces(String query) async {
-    final geoCoding = GeoCodingApi(
-      apiKey: apiKey,
-      limit: 20,
-    );
+    final geoCoding = GeoCodingApi(apiKey: apiKey, limit: 20);
 
     final response = await geoCoding.getPlaces(query);
 
     return response.fold(
-          (success) => success,
-          (failure) => throw Exception(failure.message),
+      (success) => success,
+      (failure) => throw Exception(failure.message),
     );
   }
 }
