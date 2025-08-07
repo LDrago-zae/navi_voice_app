@@ -13,6 +13,7 @@ import '../services/direction_service.dart';
 import '../services/geolocation_service.dart';
 import '../services/mapbox_service.dart';
 import '../models/location_model.dart';
+import '../services/ors_service.dart';
 
 import 'home_page.dart';
 
@@ -72,6 +73,14 @@ class _MapPageState extends State<MapPage> {
   PointAnnotationManager? pointAnnotationManager;
   bool _initialCameraSet = false;
 
+  // ORS and TTS
+  late final ORSService _orsService;
+  late final NavigationTTS _navigationTTS;
+  List<dynamic> _navigationSteps = [];
+  int _currentStepIndex = 0;
+  String? _currentInstruction;
+  bool _isNavigating = false;
+
   @override
   void initState() {
     super.initState();
@@ -83,6 +92,10 @@ class _MapPageState extends State<MapPage> {
 
     mapController = MapController(mapboxService, directionsService);
     _locationController = LocationController(geolocationService);
+
+    // Initialize ORS and TTS
+    _orsService = ORSService(dotenv.env['ORS_API_KEY'] ?? '');
+    _navigationTTS = NavigationTTS();
 
     _initializeLocation();
   }
@@ -112,6 +125,60 @@ class _MapPageState extends State<MapPage> {
     }
   }
 
+  Future<void> _startNavigationWithVoice(LocationModel destination) async {
+    setState(() {
+      _isNavigating = true;
+      _navigationSteps = [];
+      _currentStepIndex = 0;
+      _currentInstruction = null;
+    });
+    try {
+      final currentLoc = mapController.state.currentLocation;
+      if (currentLoc == null) throw Exception('Current location not available');
+      final steps = await _orsService.getRouteSteps(
+        startLat: currentLoc.latitude,
+        startLng: currentLoc.longitude,
+        endLat: destination.latitude,
+        endLng: destination.longitude,
+      );
+      setState(() {
+        _navigationSteps = steps;
+        _currentStepIndex = 0;
+        _currentInstruction = steps.isNotEmpty ? steps[0]['instruction'] : null;
+      });
+      if (_currentInstruction != null) {
+        await _navigationTTS.speak(_currentInstruction!);
+      }
+    } catch (e) {
+      setState(() {
+        _isNavigating = false;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Navigation error: $e')));
+    }
+  }
+
+  void _nextNavigationStep() async {
+    if (_navigationSteps.isEmpty) return;
+    if (_currentStepIndex + 1 < _navigationSteps.length) {
+      setState(() {
+        _currentStepIndex++;
+        _currentInstruction =
+            _navigationSteps[_currentStepIndex]['instruction'];
+      });
+      await _navigationTTS.speak(_currentInstruction!);
+    } else {
+      setState(() {
+        _isNavigating = false;
+        _navigationSteps = [];
+        _currentInstruction = null;
+        _currentStepIndex = 0;
+      });
+      await _navigationTTS.speak('You have arrived at your destination.');
+    }
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -120,17 +187,35 @@ class _MapPageState extends State<MapPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return ChangeNotifierProvider.value(
       value: mapController,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Start Navigation'),
           backgroundColor: Colors.deepPurpleAccent,
+          elevation: 4,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(bottom: Radius.circular(18)),
+          ),
         ),
         body: Consumer<MapController>(
           builder: (context, controller, child) {
             return Stack(
               children: [
+                // Gradient background behind the map for a modern look
+                Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFFede7f6), // light purple
+                        Color(0xFFe3f2fd), // light blue
+                      ],
+                    ),
+                  ),
+                ),
                 MapWidget(
                   textureView: true,
                   onMapCreated: _onMapCreated,
@@ -147,15 +232,27 @@ class _MapPageState extends State<MapPage> {
                   ),
                   styleUri: MapboxStyles.MAPBOX_STREETS,
                 ),
+                // Styled search bar
                 Positioned(
                   top: 16.0,
                   left: 16.0,
                   right: 16.0,
-                  child: SearchWidget(
-                    onSearch: controller.searchPlaces,
-                    onSelect: controller.selectDestination,
-                    searchResults: controller.state.searchResults,
-                    controller: _searchController,
+                  child: Material(
+                    elevation: 6,
+                    borderRadius: BorderRadius.circular(16),
+                    color: Colors.white.withOpacity(0.95),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 2.0,
+                        horizontal: 4.0,
+                      ),
+                      child: SearchWidget(
+                        onSearch: controller.searchPlaces,
+                        onSelect: controller.selectDestination,
+                        searchResults: controller.state.searchResults,
+                        controller: _searchController,
+                      ),
+                    ),
                   ),
                 ),
                 RouteButton(
@@ -177,119 +274,194 @@ class _MapPageState extends State<MapPage> {
                     right: 16,
                     child: Column(
                       children: [
-                        FloatingActionButton.extended(
-                          heroTag: "navigate_embedded",
-                          onPressed: () async {
-                            try {
-                              final destination = LocationModel(
-                                latitude: controller
-                                    .state
-                                    .selectedDestination!
-                                    .center!
-                                    .lat,
-                                longitude: controller
-                                    .state
-                                    .selectedDestination!
-                                    .center!
-                                    .long,
-                                name:
-                                    controller
-                                        .state
-                                        .selectedDestination!
-                                        .placeName ??
-                                    "Destination",
-                              );
-
-                              // Navigator.push(
-                              //   context,
-                              //   MaterialPageRoute(
-                              //     builder: (context) => NavigationPage(
-                              //       destination: destination,
-                              //       useEmbeddedNavigation: true,
-                              //     ),
-                              //   ),
-                              // );
-                            } catch (e) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    'Error starting navigation: $e',
+                        // Embedded navigation button with shadow and rounded corners
+                        Container(
+                          decoration: BoxDecoration(
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.15),
+                                blurRadius: 12,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: FloatingActionButton.extended(
+                            heroTag: "navigate_embedded",
+                            onPressed: () async {
+                              try {
+                                final destination = LocationModel(
+                                  latitude: controller
+                                      .state
+                                      .selectedDestination!
+                                      .center!
+                                      .lat,
+                                  longitude: controller
+                                      .state
+                                      .selectedDestination!
+                                      .center!
+                                      .long,
+                                  name:
+                                      controller
+                                          .state
+                                          .selectedDestination!
+                                          .placeName ??
+                                      "Destination",
+                                );
+                                await _startNavigationWithVoice(destination);
+                              } catch (e) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Error starting navigation: $e',
+                                    ),
                                   ),
-                                ),
-                              );
-                            }
-                          },
-                          label: const Text('Navigate'),
-                          icon: const Icon(Icons.navigation),
-                          backgroundColor: Colors.green,
+                                );
+                              }
+                            },
+                            label: const Text('Navigate'),
+                            icon: const Icon(Icons.navigation),
+                            backgroundColor: Colors.green,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
                         ),
                         const SizedBox(height: 8),
-                        FloatingActionButton.extended(
-                          heroTag: "navigate_fullscreen",
-                          onPressed: () async {
-                            try {
-                              final destination = LocationModel(
-                                latitude: controller
-                                    .state
-                                    .selectedDestination!
-                                    .center!
-                                    .lat,
-                                longitude: controller
-                                    .state
-                                    .selectedDestination!
-                                    .center!
-                                    .long,
-                                name:
-                                    controller
-                                        .state
-                                        .selectedDestination!
-                                        .placeName ??
-                                    "Destination",
-                              );
-
-                              // Navigator.push(
-                              //   context,
-                              //   MaterialPageRoute(
-                              //     builder: (context) => NavigationPage(
-                              //       destination: destination,
-                              //       useEmbeddedNavigation: false,
-                              //     ),
-                              //   ),
-                              // );
-                            } catch (e) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    'Error starting navigation: $e',
+                        // Full navigation button with shadow and rounded corners
+                        Container(
+                          decoration: BoxDecoration(
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.15),
+                                blurRadius: 12,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: FloatingActionButton.extended(
+                            heroTag: "navigate_fullscreen",
+                            onPressed: () async {
+                              try {
+                                final destination = LocationModel(
+                                  latitude: controller
+                                      .state
+                                      .selectedDestination!
+                                      .center!
+                                      .lat,
+                                  longitude: controller
+                                      .state
+                                      .selectedDestination!
+                                      .center!
+                                      .long,
+                                  name:
+                                      controller
+                                          .state
+                                          .selectedDestination!
+                                          .placeName ??
+                                      "Destination",
+                                );
+                                // Navigation logic here
+                              } catch (e) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Error starting navigation: $e',
+                                    ),
                                   ),
-                                ),
-                              );
-                            }
-                          },
-                          label: const Text('Full Nav'),
-                          icon: const Icon(Icons.fullscreen),
-                          backgroundColor: Colors.blue,
+                                );
+                              }
+                            },
+                            label: const Text('Full Nav'),
+                            icon: const Icon(Icons.fullscreen),
+                            backgroundColor: Colors.blue,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
                         ),
                       ],
+                    ),
+                  ),
+                if (_isNavigating && _currentInstruction != null)
+                  Positioned(
+                    bottom: 200,
+                    left: 16,
+                    right: 16,
+                    child: Card(
+                      color: Colors.white,
+                      elevation: 8,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Navigation',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _currentInstruction!,
+                              style: TextStyle(fontSize: 16),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 12),
+                            ElevatedButton.icon(
+                              onPressed: _nextNavigationStep,
+                              icon: Icon(Icons.arrow_forward),
+                              label: Text('Next Step'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.deepPurpleAccent,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
               ],
             );
           },
         ),
-        floatingActionButton: FloatingActionButton(
-          elevation: 100,
-          onPressed: () async {
-            try {
-              await mapController.centerToCurrentLocation();
-            } catch (e) {
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(SnackBar(content: Text('Error centering: $e')));
-            }
-          },
-          backgroundColor: Colors.deepPurpleAccent,
-          child: const Icon(Icons.my_location),
+        floatingActionButton: Container(
+          decoration: BoxDecoration(
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.18),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: FloatingActionButton(
+            elevation: 0,
+            onPressed: () async {
+              try {
+                await mapController.centerToCurrentLocation();
+              } catch (e) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('Error centering: $e')));
+              }
+            },
+            backgroundColor: Colors.deepPurpleAccent,
+            child: const Icon(Icons.my_location),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
         ),
         bottomNavigationBar: CustomBottomNav(
           currentIndex: _selectedIndex,
