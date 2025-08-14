@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'dart:ui';
 import 'package:mapbox_search/models/predictions.dart';
 
 class SearchWidget extends StatefulWidget {
@@ -42,67 +41,55 @@ class _SearchWidgetState extends State<SearchWidget> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(18.0),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 14.0,
-                vertical: 8,
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(30.0),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 6,
+                offset: const Offset(0, 3),
               ),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(18.0),
-                border: Border.all(color: Colors.white.withOpacity(0.25)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.search, color: Colors.white, size: 22),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: widget.controller,
-                      onChanged: _onSearchChanged,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        hintText: 'Search destination',
-                        hintStyle: TextStyle(color: Colors.white70),
-                        border: InputBorder.none,
-                        isDense: true,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            ],
+          ),
+          child: TextField(
+            controller: widget.controller,
+            onChanged: _onSearchChanged,
+            decoration: InputDecoration(
+              hintText: 'Search for a destination...',
+              border: InputBorder.none,
+              icon: Icon(Icons.search, color: Colors.deepPurpleAccent),
             ),
           ),
         ),
         if (widget.searchResults != null && widget.searchResults!.isNotEmpty)
-          ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-              child: Container(
-                constraints: const BoxConstraints(maxHeight: 220),
-                margin: const EdgeInsets.only(top: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.85),
-                  borderRadius: BorderRadius.circular(14),
+          Container(
+            constraints: const BoxConstraints(maxHeight: 200),
+            margin: const EdgeInsets.only(top: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
                 ),
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: widget.searchResults!.length,
-                  itemBuilder: (context, index) {
-                    final place = widget.searchResults![index];
-                    return ListTile(
-                      title: Text(place.placeName!),
-                      subtitle: Text(place.address ?? ''),
-                      onTap: () => widget.onSelect(place),
-                    );
-                  },
-                ),
-              ),
+              ],
+            ),
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: widget.searchResults!.length,
+              itemBuilder: (context, index) {
+                final place = widget.searchResults![index];
+                return ListTile(
+                  title: Text(place.placeName!),
+                  subtitle: Text(place.address ?? ''),
+                  onTap: () => widget.onSelect(place),
+                );
+              },
             ),
           ),
       ],
