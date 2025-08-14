@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
+import 'dart:ui';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:navi_voice_app/views/profile_page.dart';
 import 'package:navi_voice_app/views/voice_packs_page.dart';
 import 'package:navi_voice_app/views/widgets/custom_bottom_nav.dart';
-import 'package:navi_voice_app/views/widgets/route_button.dart';
 import 'package:navi_voice_app/views/widgets/search_button.dart';
 import 'package:provider/provider.dart';
+import '../utils/constants.dart';
+import '../constants/constants.dart';
 import '../controllers/location_controller.dart';
 import '../controllers/map_controller.dart';
 import '../services/direction_service.dart';
@@ -27,6 +29,12 @@ class MapPage extends StatefulWidget {
 class _MapPageState extends State<MapPage> {
   int _selectedIndex = 1;
   bool isDark = false;
+  int _currentStyleIndex = 0;
+  final List<String> _mapStyles = const [
+    MapboxStyles.MAPBOX_STREETS,
+    MapboxStyles.LIGHT,
+    MapboxStyles.SATELLITE_STREETS,
+  ];
 
   void _onItemTapped(int index) {
     setState(() {
@@ -187,286 +195,447 @@ class _MapPageState extends State<MapPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return ChangeNotifierProvider.value(
       value: mapController,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Start Navigation'),
-          backgroundColor: Colors.deepPurpleAccent,
-          elevation: 4,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(bottom: Radius.circular(18)),
-          ),
-        ),
-        body: Consumer<MapController>(
-          builder: (context, controller, child) {
-            return Stack(
-              children: [
-                // Gradient background behind the map for a modern look
-                Container(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Color(0xFFede7f6), // light purple
-                        Color(0xFFe3f2fd), // light blue
-                      ],
-                    ),
-                  ),
-                ),
-                MapWidget(
-                  textureView: true,
-                  onMapCreated: _onMapCreated,
-                  cameraOptions: CameraOptions(
-                    center: controller.state.currentLocation != null
-                        ? Point(
-                            coordinates: Position(
-                              controller.state.currentLocation!.longitude,
-                              controller.state.currentLocation!.latitude,
-                            ),
-                          )
-                        : Point(coordinates: Position(0, 0)),
-                    zoom: controller.state.currentLocation != null ? 15 : 2,
-                  ),
-                  styleUri: MapboxStyles.MAPBOX_STREETS,
-                ),
-                // Styled search bar
-                Positioned(
-                  top: 16.0,
-                  left: 16.0,
-                  right: 16.0,
-                  child: Material(
-                    elevation: 6,
-                    borderRadius: BorderRadius.circular(16),
-                    color: Colors.white.withOpacity(0.95),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 2.0,
-                        horizontal: 4.0,
-                      ),
-                      child: SearchWidget(
-                        onSearch: controller.searchPlaces,
-                        onSelect: controller.selectDestination,
-                        searchResults: controller.state.searchResults,
-                        controller: _searchController,
-                      ),
-                    ),
-                  ),
-                ),
-                RouteButton(
-                  onPressed: () async {
-                    try {
-                      await controller.drawRoute();
-                    } catch (e) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Error drawing route: $e')),
-                      );
-                    }
-                  },
-                  isVisible: controller.state.selectedDestination != null,
-                ),
-                // Navigation button
-                if (controller.state.selectedDestination != null)
-                  Positioned(
-                    bottom: 120,
-                    right: 16,
-                    child: Column(
-                      children: [
-                        // Embedded navigation button with shadow and rounded corners
-                        Container(
-                          decoration: BoxDecoration(
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.15),
-                                blurRadius: 12,
-                                offset: const Offset(0, 6),
-                              ),
-                            ],
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: FloatingActionButton.extended(
-                            heroTag: "navigate_embedded",
-                            onPressed: () async {
-                              try {
-                                final destination = LocationModel(
-                                  latitude: controller
-                                      .state
-                                      .selectedDestination!
-                                      .center!
-                                      .lat,
-                                  longitude: controller
-                                      .state
-                                      .selectedDestination!
-                                      .center!
-                                      .long,
-                                  name:
-                                      controller
-                                          .state
-                                          .selectedDestination!
-                                          .placeName ??
-                                      "Destination",
-                                );
-                                await _startNavigationWithVoice(destination);
-                              } catch (e) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Error starting navigation: $e',
-                                    ),
-                                  ),
-                                );
-                              }
-                            },
-                            label: const Text('Navigate'),
-                            icon: const Icon(Icons.navigation),
-                            backgroundColor: Colors.green,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        // Full navigation button with shadow and rounded corners
-                        Container(
-                          decoration: BoxDecoration(
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.15),
-                                blurRadius: 12,
-                                offset: const Offset(0, 6),
-                              ),
-                            ],
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: FloatingActionButton.extended(
-                            heroTag: "navigate_fullscreen",
-                            onPressed: () async {
-                              try {
-                                final destination = LocationModel(
-                                  latitude: controller
-                                      .state
-                                      .selectedDestination!
-                                      .center!
-                                      .lat,
-                                  longitude: controller
-                                      .state
-                                      .selectedDestination!
-                                      .center!
-                                      .long,
-                                  name:
-                                      controller
-                                          .state
-                                          .selectedDestination!
-                                          .placeName ??
-                                      "Destination",
-                                );
-                                // Navigation logic here
-                              } catch (e) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Error starting navigation: $e',
-                                    ),
-                                  ),
-                                );
-                              }
-                            },
-                            label: const Text('Full Nav'),
-                            icon: const Icon(Icons.fullscreen),
-                            backgroundColor: Colors.blue,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                if (_isNavigating && _currentInstruction != null)
-                  Positioned(
-                    bottom: 200,
-                    left: 16,
-                    right: 16,
-                    child: Card(
-                      color: Colors.white,
-                      elevation: 8,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'Navigation',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              _currentInstruction!,
-                              style: TextStyle(fontSize: 16),
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 12),
-                            ElevatedButton.icon(
-                              onPressed: _nextNavigationStep,
-                              icon: Icon(Icons.arrow_forward),
-                              label: Text('Next Step'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.deepPurpleAccent,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            ),
+      child: SafeArea(
+        top: false,
+        child: Scaffold(
+          extendBodyBehindAppBar: true,
+          body: SafeArea(
+            child: Consumer<MapController>(
+              builder: (context, controller, child) {
+                return Stack(
+                  children: [
+                    // Gradient background behind the map for a modern look
+                    Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Color(0xFFede7f6), // light purple
+                            Color(0xFFe3f2fd), // light blue
                           ],
                         ),
                       ),
                     ),
-                  ),
-              ],
-            );
-          },
-        ),
-        floatingActionButton: Container(
-          decoration: BoxDecoration(
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.18),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: FloatingActionButton(
-            elevation: 0,
-            onPressed: () async {
-              try {
-                await mapController.centerToCurrentLocation();
-              } catch (e) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text('Error centering: $e')));
-              }
-            },
-            backgroundColor: Colors.deepPurpleAccent,
-            child: const Icon(Icons.my_location),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+                    MapWidget(
+                      key: ValueKey(_currentStyleIndex),
+                      textureView: true,
+                      onMapCreated: _onMapCreated,
+                      cameraOptions: CameraOptions(
+                        center: controller.state.currentLocation != null
+                            ? Point(
+                                coordinates: Position(
+                                  controller.state.currentLocation!.longitude,
+                                  controller.state.currentLocation!.latitude,
+                                ),
+                              )
+                            : Point(coordinates: Position(0, 0)),
+                        zoom: controller.state.currentLocation != null ? 15 : 2,
+                      ),
+                      styleUri: _mapStyles[_currentStyleIndex],
+                    ),
+                    // Top gradient scrim for readability
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: IgnorePointer(
+                        ignoring: true,
+                        child: Container(
+                          height: 140,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.black.withOpacity(0.25),
+                                Colors.black.withOpacity(0.0),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    // Styled search bar + style switcher in a responsive row
+                    Positioned(
+                      top: 24.0,
+                      left: 16.0,
+                      right: 16.0,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(20),
+                              child: BackdropFilter(
+                                filter: ImageFilter.blur(
+                                  sigmaX: 14,
+                                  sigmaY: 14,
+                                ),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: Colors.white.withOpacity(0.25),
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.1),
+                                        blurRadius: 16,
+                                        offset: const Offset(0, 8),
+                                      ),
+                                    ],
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 6.0,
+                                    horizontal: 6.0,
+                                  ),
+                                  child: SearchWidget(
+                                    onSearch: controller.searchPlaces,
+                                    onSelect: controller.selectDestination,
+                                    searchResults:
+                                        controller.state.searchResults,
+                                    controller: _searchController,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: BackdropFilter(
+                              filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.12),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.25),
+                                  ),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: List.generate(_mapStyles.length, (
+                                    i,
+                                  ) {
+                                    final isSelected = i == _currentStyleIndex;
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                      ),
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(12),
+                                        onTap: () => setState(
+                                          () => _currentStyleIndex = i,
+                                        ),
+                                        child: AnimatedContainer(
+                                          duration: const Duration(
+                                            milliseconds: 200,
+                                          ),
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: isSelected
+                                                ? Colors.white.withOpacity(0.28)
+                                                : Colors.transparent,
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                          ),
+                                          child: Icon(
+                                            i == 0
+                                                ? Icons.map
+                                                : i == 1
+                                                ? Icons.light_mode
+                                                : Icons.satellite_alt,
+                                            size: 18,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Navigation button
+                    if (controller.state.selectedDestination != null)
+                      Positioned(bottom: 120, right: 16, child: Container()),
+                    // Bottom draggable sheet for actions / navigation
+                    if (controller.state.selectedDestination != null ||
+                        (_isNavigating && _currentInstruction != null))
+                      DraggableScrollableSheet(
+                        initialChildSize: 0.18,
+                        minChildSize: 0.12,
+                        maxChildSize: 0.4,
+                        builder: (context, scrollController) {
+                          final destination =
+                              controller.state.selectedDestination;
+                          return Container(
+                            decoration: BoxDecoration(
+                              color: AppColors.getCardColor(isDark),
+                              borderRadius: const BorderRadius.only(
+                                topLeft: Radius.circular(24),
+                                topRight: Radius.circular(24),
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.15),
+                                  blurRadius: 20,
+                                  offset: const Offset(0, -6),
+                                ),
+                              ],
+                            ),
+                            child: ListView(
+                              controller: scrollController,
+                              padding: const EdgeInsets.fromLTRB(
+                                16,
+                                10,
+                                16,
+                                16,
+                              ),
+                              children: [
+                                Center(
+                                  child: Container(
+                                    width: 40,
+                                    height: 4,
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                if (_isNavigating &&
+                                    _currentInstruction != null) ...[
+                                  Text(
+                                    'Navigation',
+                                    style: AppStyles.h5.copyWith(
+                                      color: AppColors.getTextPrimary(isDark),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _currentInstruction!,
+                                    style: AppStyles.t3Small.copyWith(
+                                      color: AppColors.getTextSecondary(isDark),
+                                    ),
+                                    textAlign: TextAlign.left,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          onPressed: _nextNavigationStep,
+                                          icon: const Icon(Icons.arrow_forward),
+                                          label: const Text('Next Step'),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: AppColors.accent,
+                                            foregroundColor: Colors.white,
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 14,
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ] else if (destination != null) ...[
+                                  Text(
+                                    destination.placeName ??
+                                        'Selected destination',
+                                    style: AppStyles.h5.copyWith(
+                                      color: AppColors.getTextPrimary(isDark),
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 6),
+                                  if (destination.address != null)
+                                    Text(
+                                      destination.address!,
+                                      style: AppStyles.t3Small.copyWith(
+                                        color: AppColors.getTextSecondary(
+                                          isDark,
+                                        ),
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  const SizedBox(height: 14),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          onPressed: () async {
+                                            try {
+                                              await controller.drawRoute();
+                                            } catch (e) {
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                SnackBar(
+                                                  content: Text(
+                                                    'Error drawing route: $e',
+                                                  ),
+                                                ),
+                                              );
+                                            }
+                                          },
+                                          icon: const Icon(Icons.alt_route),
+                                          label: const Text('Route'),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: AppColors.blue,
+                                            foregroundColor: Colors.white,
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 14,
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          onPressed: () async {
+                                            try {
+                                              final dest = LocationModel(
+                                                latitude:
+                                                    destination.center!.lat,
+                                                longitude:
+                                                    destination.center!.long,
+                                                name:
+                                                    destination.placeName ??
+                                                    'Destination',
+                                              );
+                                              await _startNavigationWithVoice(
+                                                dest,
+                                              );
+                                            } catch (e) {
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                SnackBar(
+                                                  content: Text(
+                                                    'Error starting navigation: $e',
+                                                  ),
+                                                ),
+                                              );
+                                            }
+                                          },
+                                          icon: const Icon(Icons.navigation),
+                                          label: const Text('Navigate'),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: AppColors.green,
+                                            foregroundColor: Colors.white,
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 14,
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                ],
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                  ],
+                );
+              },
             ),
           ),
-        ),
-        bottomNavigationBar: CustomBottomNav(
-          currentIndex: _selectedIndex,
-          onTap: _onItemTapped,
-          isDark: isDark,
+          floatingActionButton: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.18),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: FloatingActionButton(
+                  elevation: 0,
+                  onPressed: () async {
+                    try {
+                      await mapController.centerToCurrentLocation();
+                    } catch (e) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Error centering: $e')),
+                      );
+                    }
+                  },
+                  backgroundColor: AppColors.accent,
+                  child: const Icon(Icons.my_location),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                decoration: BoxDecoration(
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.18),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: FloatingActionButton(
+                  elevation: 0,
+                  onPressed: () async {
+                    try {
+                      // Placeholder for future action (e.g., traffic toggle)
+                    } catch (_) {}
+                  },
+                  backgroundColor: AppColors.getPrimary(isDark),
+                  child: const Icon(Icons.layers),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          bottomNavigationBar: CustomBottomNav(
+            currentIndex: _selectedIndex,
+            onTap: _onItemTapped,
+            isDark: isDark,
+          ),
         ),
       ),
     );
