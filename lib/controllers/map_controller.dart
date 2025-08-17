@@ -2,11 +2,13 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:mapbox_search/models/location.dart';
 import 'package:mapbox_search/models/predictions.dart';
 import '../models/location_model.dart';
 import '../services/direction_service.dart';
 import '../services/mapbox_service.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 
 class MapController extends ChangeNotifier {
   final MapboxService _mapboxService;
@@ -25,14 +27,44 @@ class MapController extends ChangeNotifier {
       return;
     }
 
+    // Get current location for proximity bias
+    final currentLoc = _state.currentLocation;
+    String proximityParam = '';
+    if (currentLoc != null) {
+      proximityParam =
+          '&proximity=${currentLoc.longitude},${currentLoc.latitude}';
+    }
+
     try {
-      final results = await _mapboxService.searchPlaces(query);
-      _state = _state.copyWith(searchResults: results);
-      notifyListeners();
+      final response = await http.get(
+        Uri.parse(
+          'https://api.mapbox.com/geocoding/v5/mapbox.places/$query.json?access_token=${_mapboxService.apiKey}&types=poi,address,place&limit=10&language=en$proximityParam',
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final features = data['features'] as List;
+
+        // Filter for multi-word queries: show results containing all words
+        final lowerQuery = query.toLowerCase();
+        final queryWords = lowerQuery
+            .split(RegExp(r'\s+'))
+            .where((w) => w.isNotEmpty)
+            .toList();
+        final results = features
+            .map((feature) => MapBoxPlace.fromJson(feature))
+            .where((place) {
+              final name = place.placeName?.toLowerCase() ?? '';
+              // All query words must be present in the name (partial match)
+              return queryWords.every((word) => name.contains(word));
+            })
+            .toList();
+        _state = _state.copyWith(searchResults: results);
+        notifyListeners();
+      }
     } catch (e) {
-      _state = _state.copyWith(searchResults: null);
-      notifyListeners();
-      rethrow;
+      print('Search error: $e');
     }
   }
 
