@@ -10,4 +10,7 @@ class LocationController {
     final position = await _geolocationService.getCurrentLocation();
     return LocationModel.fromPosition(position);
   }
+
+  Stream<LocationModel> get locationStream => _geolocationService.locationStream
+      .map((position) => LocationModel.fromPosition(position));
 }

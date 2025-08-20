@@ -21,4 +21,6 @@ class GeolocationService {
 
     return await Geolocator.getCurrentPosition();
   }
+
+  Stream<Position> get locationStream => Geolocator.getPositionStream();
 }
