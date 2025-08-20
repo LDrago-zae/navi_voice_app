@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
@@ -17,6 +19,14 @@ import '../services/ors_service.dart';
 import 'dart:ui';
 import 'home_page.dart';
 
+// Assuming LocationModel updated to include: double? bearing;
+// In LocationController (if not already):
+// Stream<LocationModel> get locationStream => geolocationService.location.onLocationChanged.map((data) => LocationModel(
+//   latitude: data.latitude!,
+//   longitude: data.longitude!,
+//   bearing: data.heading,
+// ));
+
 class MapPage extends StatefulWidget {
   const MapPage({super.key});
 
@@ -31,6 +41,8 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
   late AnimationController _pulseController;
   late Animation<double> _slideAnimation;
   late Animation<double> _pulseAnimation;
+  late AnimationController _fadeController;
+  late Animation<double> _fadeAnimation;
 
   @override
   void initState() {
@@ -44,6 +56,11 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
       vsync: this,
     )..repeat();
 
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    );
+
     _slideAnimation = CurvedAnimation(
       parent: _animationController,
       curve: Curves.easeOutCubic,
@@ -51,6 +68,10 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     _pulseAnimation = Tween<double>(begin: 0.8, end: 1.2).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _fadeController, curve: Curves.easeIn));
 
     final mapboxService = MapboxService(dotenv.env['MAP_BOX_ACCESS_TOKEN']!);
     final directionsService = DirectionsService(
@@ -72,7 +93,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
   void dispose() {
     _animationController.dispose();
     _pulseController.dispose();
+    _fadeController.dispose();
     _searchController.dispose();
+    _locationSub?.cancel();
     super.dispose();
   }
 
@@ -126,6 +149,8 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
   int _currentStepIndex = 0;
   String? _currentInstruction;
   bool _isNavigating = false;
+  StreamSubscription<LocationModel>? _locationSub;
+  double? _totalDistance; // NEW: Store total route distance in meters
 
   Future<void> _initializeLocation() async {
     try {
@@ -144,6 +169,17 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
   void _onMapCreated(MapboxMap mapboxMap) async {
     mapController.mapboxMap = mapboxMap;
 
+    // Enable user location puck
+    await mapboxMap.location.updateSettings(
+      LocationComponentSettings(
+        enabled: true,
+        pulsingEnabled: true,
+        puckBearingEnabled: true,
+        // puckBearingSource: PuckBearingSource.HEADING,
+        // For 3D puck: locationPuck: LocationPuck(locationPuck3D: LocationPuck3D(modelUri: 'your_model_uri')),
+      ),
+    );
+
     if (mapController.state.currentLocation != null && !_initialCameraSet) {
       mapController.centerToCurrentLocation();
       _initialCameraSet = true;
@@ -156,29 +192,88 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
       _navigationSteps = [];
       _currentStepIndex = 0;
       _currentInstruction = null;
+      _totalDistance = null; // NEW: Initialize distance
     });
+    _fadeController.forward(); // Animate nav card in
+
     try {
       final currentLoc = mapController.state.currentLocation;
       if (currentLoc == null) throw Exception('Current location not available');
-      final steps = await _orsService.getRouteSteps(
+
+      // NEW: Assuming ORSService.getRouteDetails returns {'steps': List<dynamic>, 'distance': double}
+      // If getRouteSteps only returns steps, sum step['distance'] below
+      final routeDetails = await _orsService.getRouteSteps(
         startLat: currentLoc.latitude,
         startLng: currentLoc.longitude,
         endLat: destination.latitude,
         endLng: destination.longitude,
       );
       setState(() {
-        _navigationSteps = steps;
+        _navigationSteps = routeDetails ?? [];
+        _totalDistance = _navigationSteps.fold<double>(
+          0.0,
+          (sum, step) => sum + (step['distance'] ?? 0.0),
+        );
         _currentStepIndex = 0;
-        _currentInstruction = steps.isNotEmpty ? steps[0]['instruction'] : null;
+        _currentInstruction = _navigationSteps.isNotEmpty
+            ? _navigationSteps[0]['instruction']
+            : null;
       });
       if (_currentInstruction != null) {
         await _navigationTTS.speak(_currentInstruction!);
       }
-    } catch (e) {
-      setState(() {
-        _isNavigating = false;
+
+      // Alternative if getRouteDetails not available:
+      // final steps = await _orsService.getRouteSteps(...);
+      // double totalDist = steps.fold(0.0, (sum, step) => sum + (step['distance'] ?? 0.0));
+      // setState(() {
+      //   _navigationSteps = steps;
+      //   _totalDistance = totalDist;
+      //   ...
+      // });
+
+      // Start listening to location for camera follow and step progress
+      _locationSub = _locationController.locationStream.listen((
+        location,
+      ) async {
+        mapController.updateCurrentLocation(location);
+
+        // Smooth camera follow with tilt and bearing
+        await mapController.mapboxMap?.easeTo(
+          CameraOptions(
+            center: Point(
+              coordinates: Position(location.longitude, location.latitude),
+            ),
+            zoom: 17.0,
+            bearing: location.bearing ?? 0.0,
+            pitch: 60.0,
+          ),
+          MapAnimationOptions(duration: 1000),
+        );
+
+        // Optional: Log for analytics (e.g., send to Firebase)
+        // analytics.logEvent(name: 'location_update', parameters: {'lat': location.latitude, 'lng': location.longitude});
+
+        // Check navigation progress
+        if (_navigationSteps.isNotEmpty &&
+            _currentStepIndex < _navigationSteps.length) {
+          final nextManeuver =
+              _navigationSteps[_currentStepIndex]['maneuver']['location']; // [lng, lat]
+          final dist = _calculateDistance(
+            location.latitude,
+            location.longitude,
+            nextManeuver[1], // lat
+            nextManeuver[0], // lng
+          );
+          if (dist < 30.0) {
+            // Threshold in meters
+            _nextNavigationStep();
+          }
+        }
       });
-      _showSnackBar('Navigation error: $e');
+    } catch (e) {
+      _stopNavigation();
+      _showSnackBar('Error starting navigation: $e');
     }
   }
 
@@ -187,19 +282,50 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     if (_currentStepIndex + 1 < _navigationSteps.length) {
       setState(() {
         _currentStepIndex++;
-        _currentInstruction = _navigationSteps[_currentStepIndex]['instruction'];
+        _currentInstruction =
+            _navigationSteps[_currentStepIndex]['instruction'];
       });
       await _navigationTTS.speak(_currentInstruction!);
     } else {
-      setState(() {
-        _isNavigating = false;
-        _navigationSteps = [];
-        _currentInstruction = null;
-        _currentStepIndex = 0;
-      });
+      _stopNavigation();
       await _navigationTTS.speak('You have arrived at your destination.');
     }
   }
+
+  void _stopNavigation() {
+    setState(() {
+      _isNavigating = false;
+      _navigationSteps = [];
+      _currentInstruction = null;
+      _currentStepIndex = 0;
+      _totalDistance = null; // NEW: Reset distance
+    });
+    _fadeController.reverse();
+    _locationSub?.cancel();
+    // Reset camera to default if needed
+    mapController.centerToCurrentLocation();
+  }
+
+  double _calculateDistance(
+    double lat1,
+    double lon1,
+    double lat2,
+    double lon2,
+  ) {
+    const R = 6371000.0; // Earth radius in meters
+    final dLat = _degToRad(lat2 - lat1);
+    final dLon = _degToRad(lon2 - lon1);
+    final a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_degToRad(lat1)) *
+            math.cos(_degToRad(lat2)) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return R * c;
+  }
+
+  double _degToRad(double deg) => deg * (math.pi / 180);
 
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -227,10 +353,14 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(opacity),
             borderRadius: borderRadius ?? BorderRadius.circular(20),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.2),
-              width: 1,
-            ),
+            border: Border.all(color: Colors.white.withOpacity(0.2), width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
           child: child,
         ),
@@ -250,29 +380,18 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
           padding: const EdgeInsets.all(4),
           child: SearchWidget(
             onSearch: (query) {
-              // Trigger search as user types
               if (query.isNotEmpty) {
                 mapController.searchPlaces(query);
               } else {
-                // Clear results when search is empty
                 mapController.state.searchResults?.clear();
                 setState(() {});
               }
             },
             onSelect: (selectedLocation) {
-              // Set the selected location text in the search controller
               _searchController.text = selectedLocation.placeName ?? '';
-
-              // Select the destination in the map controller
               mapController.selectDestination(selectedLocation);
-
-              // Clear search results by directly clearing the list
               mapController.state.searchResults?.clear();
-
-              // Remove focus from search field to hide keyboard
               FocusScope.of(context).unfocus();
-
-              // Trigger rebuild to hide dropdown
               setState(() {});
             },
             searchResults: mapController.state.searchResults,
@@ -307,12 +426,17 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                       _showSnackBar('Error drawing route: $e');
                     }
                   },
-                  label: const Text('Show Route', style: TextStyle(fontWeight: FontWeight.w600)),
+                  label: const Text(
+                    'Show Route',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
                   icon: const Icon(Icons.route),
                   backgroundColor: const Color(0xFF6C63FF),
                   foregroundColor: Colors.white,
                   elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(25),
+                  ),
                 ),
               ),
             ),
@@ -327,21 +451,39 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                   onPressed: () async {
                     try {
                       final destination = LocationModel(
-                        latitude: mapController.state.selectedDestination!.center!.lat,
-                        longitude: mapController.state.selectedDestination!.center!.long,
-                        name: mapController.state.selectedDestination!.placeName ?? "Destination",
+                        latitude: mapController
+                            .state
+                            .selectedDestination!
+                            .center!
+                            .lat,
+                        longitude: mapController
+                            .state
+                            .selectedDestination!
+                            .center!
+                            .long,
+                        name:
+                            mapController
+                                .state
+                                .selectedDestination!
+                                .placeName ??
+                            "Destination",
                       );
                       await _startNavigationWithVoice(destination);
                     } catch (e) {
                       _showSnackBar('Error starting navigation: $e');
                     }
                   },
-                  label: const Text('Navigate', style: TextStyle(fontWeight: FontWeight.w600)),
+                  label: const Text(
+                    'Navigate',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
                   icon: const Icon(Icons.navigation),
                   backgroundColor: const Color(0xFF00D4AA),
                   foregroundColor: Colors.white,
                   elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(25),
+                  ),
                 ),
               ),
             ),
@@ -370,7 +512,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                       foregroundColor: Colors.white,
                       elevation: 0,
                       child: const Icon(Icons.my_location, size: 28),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30),
+                      ),
                     ),
                   ),
                 ),
@@ -383,11 +527,12 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
   }
 
   Widget _buildNavigationCard() {
-    return SlideTransition(
-      position: Tween<Offset>(
-        begin: const Offset(0, 1),
-        end: Offset.zero,
-      ).animate(_slideAnimation),
+    // NEW: Format total distance in kilometers
+    final distanceKm = _totalDistance != null
+        ? (_totalDistance! / 1000).toStringAsFixed(1)
+        : 'Calculating';
+    return FadeTransition(
+      opacity: _fadeAnimation,
       child: _buildGlassMorphicContainer(
         opacity: 0.15,
         blur: 15,
@@ -404,7 +549,11 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                       color: const Color(0xFF6C63FF),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(Icons.navigation, color: Colors.white, size: 20),
+                    child: const Icon(
+                      Icons.navigation,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   const Text(
@@ -417,9 +566,26 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
+              // NEW: Display estimated distance
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.straighten, color: Colors.black54, size: 16),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Estimated distance: $distanceKm km',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.black54,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 16),
               Text(
-                _currentInstruction!,
+                _currentInstruction ?? '',
                 style: const TextStyle(
                   fontSize: 16,
                   color: Colors.black87,
@@ -431,17 +597,19 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
               Container(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: _nextNavigationStep,
-                  icon: const Icon(Icons.arrow_forward_ios, size: 18),
+                  onPressed: _stopNavigation,
+                  icon: const Icon(Icons.stop, size: 18),
                   label: const Text(
-                    'Next Step',
+                    'Stop Navigation',
                     style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF00D4AA),
+                    backgroundColor: Colors.redAccent,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
                     elevation: 0,
                   ),
                 ),
@@ -490,36 +658,39 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                   cameraOptions: CameraOptions(
                     center: controller.state.currentLocation != null
                         ? Point(
-                      coordinates: Position(
-                        controller.state.currentLocation!.longitude,
-                        controller.state.currentLocation!.latitude,
-                      ),
-                    )
+                            coordinates: Position(
+                              controller.state.currentLocation!.longitude,
+                              controller.state.currentLocation!.latitude,
+                            ),
+                          )
                         : Point(coordinates: Position(0, 0)),
                     zoom: controller.state.currentLocation != null ? 15 : 2,
                   ),
                   styleUri: isDark ? MapboxStyles.DARK : MapboxStyles.LIGHT,
                 ),
 
-                // Modern search bar
-                Positioned(
-                  top: 100,
-                  left: 16,
-                  right: 16,
-                  child: _buildModernSearchBar(),
-                ),
+                // Conditional UI based on navigation state
+                if (!_isNavigating) ...[
+                  // Modern search bar
+                  Positioned(
+                    top: 100,
+                    left: 16,
+                    right: 16,
+                    child: _buildModernSearchBar(),
+                  ),
 
-                // Action buttons
-                Positioned(
-                  bottom: 120,
-                  right: 16,
-                  child: _buildActionButtons(),
-                ),
+                  // Action buttons
+                  Positioned(
+                    bottom: 120,
+                    right: 16,
+                    child: _buildActionButtons(),
+                  ),
+                ],
 
-                // Navigation card
+                // Navigation dialog (top-positioned)
                 if (_isNavigating && _currentInstruction != null)
                   Positioned(
-                    bottom: 200,
+                    top: 100,
                     left: 16,
                     right: 16,
                     child: _buildNavigationCard(),
