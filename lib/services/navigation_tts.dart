@@ -1,6 +1,4 @@
-import 'dart:typed_data';
 import 'package:just_audio/just_audio.dart';
-// import 'package:vibration/vibration.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'eleven_labs_service.dart';
@@ -52,10 +50,6 @@ class NavigationTTS {
           await _player.setAudioSource(AudioSource.uri(Uri.file(file.path)));
           await _player.play();
           print('NavigationTTS: Started playing audio from file');
-
-          // if (await Vibration.hasVibrator() ?? false) {
-          //   Vibration.vibrate(duration: 50);
-          // }
 
           // Clean up temporary file after playback
           await _player.playbackEventStream.firstWhere(

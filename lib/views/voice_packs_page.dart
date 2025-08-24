@@ -5,6 +5,10 @@ import '../models/voice_pack.dart';
 import '../services/eleven_labs_service.dart';
 import '../services/navigation_tts.dart';
 import 'widgets/voice_pack_card.dart';
+import 'widgets/custom_bottom_nav.dart';
+import 'home_page.dart';
+import 'map_page.dart';
+import 'profile_page.dart';
 
 class VoicePacksPage extends StatefulWidget {
   final bool isDark;
@@ -34,7 +38,8 @@ class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
   bool isDark = false;
   late ElevenLabsService _elevenLabsService;
   late NavigationTTS _navigationTTS;
-  VoicePack? _selectedVoice; // Track the currently selected voice
+  VoicePack? _selectedVoice;
+  int _selectedIndex = 2; // VoicePacksPage index
 
   @override
   void initState() {
@@ -123,44 +128,20 @@ class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
         );
         return;
       }
-      // Show dialog for confirmation
-      final result = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('Select Voice'),
-          content: Text(
-            'Do you want to use "${voicePack.artist}" for navigation?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Select'),
-            ),
-          ],
+      // Directly select the voice without dialog
+      // Speak the voice name as feedback
+      await _navigationTTS.speak(voicePack.artist, voicePack.elevenLabsVoiceId);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Voice selected: ${voicePack.artist}'),
+          backgroundColor: Colors.green,
         ),
       );
-      if (result == true) {
-        // Speak the voice name as feedback
-        await _navigationTTS.speak(
-          voicePack.artist,
-          voicePack.elevenLabsVoiceId,
-        );
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Voice selected: ${voicePack.artist}'),
-            backgroundColor: Colors.blue,
-          ),
-        );
-        setState(() {
-          _selectedVoice = voicePack;
-        });
-        // Pop and return the selected voice to the previous page (MapPage)
-        Navigator.pop(context, voicePack);
-      }
+      setState(() {
+        _selectedVoice = voicePack;
+      });
+      // Return selected voice to MapPage
+      Navigator.pop(context, voicePack);
     } catch (e) {
       print('Voice selection error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -188,20 +169,27 @@ class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
         );
         return;
       }
-      // Speak the voice name
-      await _navigationTTS.speak(voicePack.artist, voicePack.elevenLabsVoiceId);
-      // Show snackbar with voice name
+      await _navigationTTS.speak(
+        'This is a preview of my voice for navigation.',
+        voicePack.elevenLabsVoiceId,
+      );
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Voice selected: ${voicePack.artist}'),
-          backgroundColor: Colors.blue,
+          duration: const Duration(seconds: 2),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+          content: Text('Playing preview of ${voicePack.artist}'),
+          backgroundColor: Colors.cyan,
         ),
       );
     } catch (e) {
       print('Voice test error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Voice test failed: $e'),
+          content: Text('Voice preview failed: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -217,13 +205,17 @@ class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
 
     return Scaffold(
       backgroundColor: bg,
+      bottomNavigationBar: CustomBottomNav(
+        currentIndex: _selectedIndex,
+        onTap: _onItemTapped,
+        isDark: isDark,
+      ),
       appBar: AppBar(
         backgroundColor: bg,
         elevation: 0,
         leading: IconButton(
           icon: Icon(Icons.arrow_back, color: textPrimary),
           onPressed: () {
-            // Return the selected voice to MapPage when navigating back
             Navigator.pop(context, _selectedVoice);
           },
         ),
@@ -406,7 +398,6 @@ class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
                 ),
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                itemExtent: 300,
                 itemCount: _filteredVoicePacks.length,
                 itemBuilder: (context, index) {
                   final pack = _filteredVoicePacks[index];
@@ -414,7 +405,6 @@ class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
                     voicePack: pack,
                     isDark: isDark,
                     onTestVoice: () => _testVoice(pack),
-                    onVoiceSelectedWithPack: () => _selectVoice(pack),
                   );
                 },
               ),
@@ -423,5 +413,33 @@ class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
         ),
       ),
     );
+  }
+
+  void _onItemTapped(int index) {
+    if (index == 0) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const HomePage()),
+      );
+    } else if (index == 1) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const MapPage()),
+      );
+    } else if (index == 3) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ProfilePage(
+            isDark: isDark,
+            onThemeChanged: (value) {
+              setState(() {
+                isDark = value;
+              });
+            },
+          ),
+        ),
+      );
+    }
   }
 }

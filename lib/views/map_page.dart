@@ -1,12 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:navi_voice_app/models/voice_pack.dart';
 import 'package:navi_voice_app/services/navigation_tts.dart';
+import 'package:navi_voice_app/views/home_page.dart';
+import 'package:navi_voice_app/views/widgets/custom_bottom_nav.dart';
 import 'package:navi_voice_app/views/widgets/search_button.dart';
+import 'package:navi_voice_app/views/profile_page.dart';
 import 'package:provider/provider.dart';
 import '../controllers/location_controller.dart';
 import '../controllers/map_controller.dart';
@@ -34,6 +39,35 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
   VoicePack? _selectedVoice;
+  final int _selectedIndex = 1; // MapPage index
+
+  void _onItemTapped(int index) {
+    if (index == 0) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const HomePage()),
+      );
+    } else if (index == 2) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => VoicePacksPage(isDark: isDark)),
+      );
+    } else if (index == 3) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ProfilePage(
+            isDark: isDark,
+            onThemeChanged: (value) {
+              setState(() {
+                isDark = value;
+              });
+            },
+          ),
+        ),
+      );
+    }
+  }
 
   @override
   void initState() {
@@ -106,7 +140,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
   Future<void> _initializeLocation() async {
     try {
       final location = await _locationController.getCurrentLocation();
-      mapController.updateCurrentLocation(location);
+      // Get location name using reverse geocoding
+      final locationWithName = await _getLocationWithName(location);
+      mapController.updateCurrentLocation(locationWithName);
       if (mapController.mapboxMap != null && !_initialCameraSet) {
         await mapController.centerToCurrentLocation();
         _initialCameraSet = true;
@@ -114,6 +150,39 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     } catch (e) {
       _showSnackBar('Error getting location: $e');
     }
+  }
+
+  Future<LocationModel> _getLocationWithName(LocationModel location) async {
+    try {
+      final response = await http.get(
+        Uri.parse(
+          'https://api.mapbox.com/geocoding/v5/mapbox.places/${location.longitude},${location.latitude}.json?access_token=${dotenv.env['MAP_BOX_ACCESS_TOKEN']}&types=poi,address,place&limit=1&language=en',
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final features = data['features'] as List;
+        if (features.isNotEmpty) {
+          final placeName = features[0]['place_name'] as String?;
+          if (placeName != null) {
+            // Extract just the main part of the address (before the first comma)
+            final mainLocation = placeName.split(',')[0];
+            return LocationModel(
+              latitude: location.latitude,
+              longitude: location.longitude,
+              name: mainLocation,
+              bearing: location.bearing,
+            );
+          }
+        }
+      }
+    } catch (e) {
+      print('Reverse geocoding error: $e');
+    }
+
+    // Return original location if reverse geocoding fails
+    return location;
   }
 
   void _onMapCreated(MapboxMap mapboxMap) async {
@@ -176,7 +245,20 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
       _locationSub = _locationController.locationStream.listen((
         location,
       ) async {
-        mapController.updateCurrentLocation(location);
+        // Only do reverse geocoding for the first location update or if location name is null
+        LocationModel locationWithName;
+        if (mapController.state.currentLocation?.name == null) {
+          locationWithName = await _getLocationWithName(location);
+        } else {
+          // Keep the existing name but update coordinates
+          locationWithName = LocationModel(
+            latitude: location.latitude,
+            longitude: location.longitude,
+            name: mapController.state.currentLocation?.name,
+            bearing: location.bearing,
+          );
+        }
+        mapController.updateCurrentLocation(locationWithName);
         await mapController.mapboxMap?.easeTo(
           CameraOptions(
             center: Point(
@@ -277,7 +359,7 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.red,
+        backgroundColor: Colors.cyan,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(16),
@@ -477,6 +559,13 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     final distanceKm = _totalDistance != null
         ? (_totalDistance! / 1000).toStringAsFixed(1)
         : 'Calculating';
+
+    // Get current location name
+    final currentLocationName =
+        mapController.state.currentLocation?.name ?? 'Current Location';
+    final destinationName =
+        mapController.state.selectedDestination?.placeName ?? 'Destination';
+
     return FadeTransition(
       opacity: _fadeAnimation,
       child: _buildGlassMorphicContainer(
@@ -513,6 +602,52 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                 ],
               ),
               const SizedBox(height: 8),
+              // Current location display
+              Row(
+                children: [
+                  const Icon(
+                    Icons.location_on,
+                    color: Colors.black54,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'From: $currentLocationName',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.black54,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              // Destination display
+              Row(
+                children: [
+                  const Icon(
+                    Icons.location_on_outlined,
+                    color: Colors.black54,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'To: $destinationName',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.black54,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -572,7 +707,14 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
       value: mapController,
       child: Scaffold(
         extendBodyBehindAppBar: true,
+        resizeToAvoidBottomInset: false,
         appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              _onItemTapped(0); // Navigate to HomePage using bottom nav logic
+            },
+          ),
           backgroundColor: Colors.transparent,
           elevation: 0,
           title: _buildGlassMorphicContainer(
@@ -596,13 +738,8 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
               icon: const Icon(Icons.headphones),
               tooltip: 'Select Voice',
               onPressed: () async {
-                final selected = await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => VoicePacksPage(isDark: isDark),
-                  ),
-                );
-                if (selected != null && selected is VoicePack) {
+                final selected = await _showVoiceSelectionDialog();
+                if (selected != null) {
                   setState(() {
                     _selectedVoice = selected;
                   });
@@ -656,6 +793,55 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
             );
           },
         ),
+        bottomNavigationBar: CustomBottomNav(
+          currentIndex: _selectedIndex,
+          onTap: _onItemTapped,
+          isDark: isDark,
+        ),
+      ),
+    );
+  }
+
+  Future<VoicePack?> _showVoiceSelectionDialog() async {
+    return showDialog<VoicePack>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Select Voice'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 300,
+          child: ListView.builder(
+            itemCount: VoicePack.allVoicePacks.length,
+            itemBuilder: (context, index) {
+              final voicePack = VoicePack.allVoicePacks[index];
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: voicePack.isPremium
+                      ? Colors.amber
+                      : Colors.blue,
+                  child: Icon(
+                    voicePack.isPremium ? Icons.star : Icons.mic,
+                    color: Colors.white,
+                  ),
+                ),
+                title: Text(voicePack.artist),
+                subtitle: Text(voicePack.description),
+                trailing: voicePack.isOwned
+                    ? const Icon(Icons.check_circle, color: Colors.green)
+                    : Text('\$${voicePack.price}'),
+                onTap: () {
+                  Navigator.pop(context, voicePack);
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
       ),
     );
   }

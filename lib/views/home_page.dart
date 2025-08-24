@@ -1,13 +1,14 @@
-import 'package:flutter/material.dart'; // Import the new voice_packs_page.dart
-import 'package:navi_voice_app/views/voice_packs_page.dart';
+import 'package:flutter/material.dart';
+import 'package:navi_voice_app/models/voice_pack.dart';
 import '../utils/constants.dart';
 import 'map_page.dart';
 import '../models/recommended_voice.dart';
 import '../models/recent_trip.dart';
-import 'widgets/recommended_voice_card.dart';
-import 'widgets/recent_trip_card.dart';
 import 'profile_page.dart';
 import 'widgets/custom_bottom_nav.dart';
+import 'voice_packs_page.dart';
+import 'widgets/recommended_voice_card.dart';
+import 'widgets/recent_trip_card.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -19,11 +20,28 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
   bool isDark = false;
+  VoicePack? _selectedVoice; // Store selected voice for MapPage
 
   void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+    if (index == 1) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const MapPage()),
+      );
+    } else if (index == 2) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => VoicePacksPage(isDark: isDark)),
+      );
+    } else if (index == 3) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              ProfilePage(isDark: isDark, onThemeChanged: _toggleTheme),
+        ),
+      );
+    }
   }
 
   void _toggleTheme(bool value) {
@@ -32,26 +50,17 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  void _switchToMap() {
+    setState(() {
+      _selectedIndex = 1; // MapPage tab index
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final bg = AppColors.getBackground(isDark);
-    final card = AppColors.getCardColor(isDark);
-    final cardShadow = AppColors.getCardShadow(isDark);
-    final textPrimary = AppColors.getTextPrimary(isDark);
-    final textSecondary = AppColors.getTextSecondary(isDark);
-    final primary = AppColors.getPrimary(isDark);
-    final primaryLight = AppColors.getPrimaryLight(isDark);
     return Scaffold(
-      backgroundColor: bg,
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: [
-          HomeScreenContent(isDark: isDark),
-          MapPage(),
-          VoicePacksPage(isDark: isDark),
-          ProfilePage(isDark: isDark, onThemeChanged: _toggleTheme),
-        ],
-      ),
+      backgroundColor: AppColors.getBackground(isDark),
+      body: HomeScreenContent(isDark: isDark),
       bottomNavigationBar: CustomBottomNav(
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
@@ -84,7 +93,6 @@ class HomeScreenContent extends StatelessWidget {
             ),
             child: Column(
               children: [
-                // Welcome Card
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(20),
@@ -196,7 +204,6 @@ class HomeScreenContent extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 24),
-                // Quick Start
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(18),
@@ -230,12 +237,10 @@ class HomeScreenContent extends StatelessWidget {
                         children: [
                           ElevatedButton(
                             onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const MapPage(),
-                                ),
-                              );
+                              // Switch to MapPage tab
+                              _HomePageState? homeState = context
+                                  .findAncestorStateOfType<_HomePageState>();
+                              homeState?._onItemTapped(1);
                             },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: primary,
@@ -264,12 +269,10 @@ class HomeScreenContent extends StatelessWidget {
                           ),
                           OutlinedButton(
                             onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const VoicePacksPage(),
-                                ),
-                              );
+                              // Switch to VoicePacksPage tab
+                              _HomePageState? homeState = context
+                                  .findAncestorStateOfType<_HomePageState>();
+                              homeState?._onItemTapped(2);
                             },
                             style: OutlinedButton.styleFrom(
                               foregroundColor: primary,
@@ -297,7 +300,6 @@ class HomeScreenContent extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 24),
-                // Recommended for You
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(18),
@@ -327,7 +329,12 @@ class HomeScreenContent extends StatelessWidget {
                             ),
                           ),
                           TextButton(
-                            onPressed: () {},
+                            onPressed: () {
+                              // Switch to VoicePacksPage tab
+                              _HomePageState? homeState = context
+                                  .findAncestorStateOfType<_HomePageState>();
+                              homeState?._onItemTapped(2);
+                            },
                             style: TextButton.styleFrom(
                               foregroundColor: primary,
                             ),
@@ -348,7 +355,6 @@ class HomeScreenContent extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 24),
-                // Recent Trips
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(18),

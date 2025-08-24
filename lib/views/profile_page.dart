@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import '../utils/constants.dart';
+import 'widgets/custom_bottom_nav.dart';
+import 'home_page.dart';
+import 'map_page.dart';
+import 'voice_packs_page.dart';
 
 class ProfilePage extends StatefulWidget {
   final bool isDark;
@@ -16,6 +20,7 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   late bool isDark;
+  int _selectedIndex = 3; // ProfilePage index
 
   @override
   void initState() {
@@ -40,6 +45,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
     return Scaffold(
       backgroundColor: bg,
+      bottomNavigationBar: CustomBottomNav(
+        currentIndex: _selectedIndex,
+        onTap: _onItemTapped,
+        isDark: isDark,
+      ),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 48.0),
@@ -165,5 +175,24 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
       ),
     );
+  }
+
+  void _onItemTapped(int index) {
+    if (index == 0) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const HomePage()),
+      );
+    } else if (index == 1) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const MapPage()),
+      );
+    } else if (index == 2) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => VoicePacksPage(isDark: isDark)),
+      );
+    }
   }
 }

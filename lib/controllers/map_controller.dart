@@ -14,6 +14,7 @@ class MapController extends ChangeNotifier {
   final MapboxService _mapboxService;
   final DirectionsService _directionsService;
   MapboxMap? mapboxMap;
+  PointAnnotationManager? _pointAnnotationManager; // Store the manager
 
   MapState _state = MapState();
   MapState get state => _state;
@@ -152,21 +153,47 @@ class MapController extends ChangeNotifier {
   }
 
   void updateCurrentLocation(LocationModel location) {
+    // Optional: Check if location has significantly changed to avoid unnecessary updates
+    if (_state.currentLocation != null) {
+      const double threshold = 0.0001; // ~10 meters
+      final latDiff = (location.latitude - _state.currentLocation!.latitude)
+          .abs();
+      final lonDiff = (location.longitude - _state.currentLocation!.longitude)
+          .abs();
+      if (latDiff < threshold && lonDiff < threshold) {
+        print('MapController: Location update skipped (within threshold)');
+        return;
+      }
+    }
+
     _state = _state.copyWith(currentLocation: location);
     notifyListeners();
     _updateCurrentLocationMarker();
   }
 
   Future<void> _updateCurrentLocationMarker() async {
-    if (mapboxMap == null || _state.currentLocation == null) return;
+    if (mapboxMap == null || _state.currentLocation == null) {
+      print('MapController: Skipping marker update (map or location null)');
+      return;
+    }
 
-    final pointAnnotationManager = await mapboxMap!.annotations
-        .createPointAnnotationManager();
+    // Initialize PointAnnotationManager if not already done
+    if (_pointAnnotationManager == null) {
+      _pointAnnotationManager = await mapboxMap!.annotations
+          .createPointAnnotationManager();
+      print('MapController: Created PointAnnotationManager');
+    }
 
+    // Clear existing markers
+    await _pointAnnotationManager!.deleteAll();
+    print('MapController: Cleared existing markers');
+
+    // Load marker image
     final ByteData bytes = await rootBundle.load('assets/icons/marker.png');
     final Uint8List imageData = bytes.buffer.asUint8List();
 
-    await pointAnnotationManager.create(
+    // Add new marker
+    await _pointAnnotationManager!.create(
       PointAnnotationOptions(
         geometry: Point(
           coordinates: Position(
@@ -178,6 +205,16 @@ class MapController extends ChangeNotifier {
         iconSize: 2.5,
       ),
     );
+    print(
+      'MapController: Added new marker at (${_state.currentLocation!.latitude}, ${_state.currentLocation!.longitude})',
+    );
+  }
+
+  @override
+  void dispose() {
+    _pointAnnotationManager?.deleteAll();
+    _pointAnnotationManager = null;
+    super.dispose();
   }
 }
 
