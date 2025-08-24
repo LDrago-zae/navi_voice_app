@@ -24,39 +24,6 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _selectedIndex = index;
     });
-
-    switch (index) {
-      case 0:
-        // Stay on Home
-        break;
-      case 1:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const MapPage()),
-        );
-        break;
-      case 2:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const VoicePacksPage()),
-        );
-        break;
-      case 3:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProfilePage(
-              isDark: isDark,
-              onThemeChanged: (bool value) {
-                setState(() {
-                  isDark = value;
-                });
-              },
-            ),
-          ),
-        );
-        break;
-    }
   }
 
   void _toggleTheme(bool value) {

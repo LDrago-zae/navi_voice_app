@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:flutter_tts/flutter_tts.dart';
 
 class ORSService {
   final String apiKey;
@@ -32,23 +31,17 @@ class ORSService {
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
+      print('ORS: Response data: $data');
+
       // Steps are in features[0].properties.segments[0].steps
-      return data['features'][0]['properties']['segments'][0]['steps'];
+      final steps = data['features'][0]['properties']['segments'][0]['steps'];
+      print('ORS: Found ${steps.length} steps');
+      print('ORS: First step: ${steps.isNotEmpty ? steps[0] : 'No steps'}');
+
+      return steps;
     } else {
+      print('ORS: Error response: ${response.body}');
       throw Exception('Failed to fetch route: ${response.body}');
     }
-  }
-}
-
-class NavigationTTS {
-  final FlutterTts _tts = FlutterTts();
-
-  Future<void> speak(String instruction) async {
-    await _tts.stop();
-    await _tts.speak(instruction);
-  }
-
-  Future<void> setLanguage(String languageCode) async {
-    await _tts.setLanguage(languageCode);
   }
 }

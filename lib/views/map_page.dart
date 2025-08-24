@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
-import 'package:navi_voice_app/views/profile_page.dart';
-import 'package:navi_voice_app/views/voice_packs_page.dart';
-import 'package:navi_voice_app/views/widgets/custom_bottom_nav.dart';
-import 'package:navi_voice_app/views/widgets/route_button.dart';
+import 'package:navi_voice_app/models/voice_pack.dart';
+import 'package:navi_voice_app/services/navigation_tts.dart';
 import 'package:navi_voice_app/views/widgets/search_button.dart';
 import 'package:provider/provider.dart';
 import '../controllers/location_controller.dart';
@@ -16,26 +15,17 @@ import '../services/geolocation_service.dart';
 import '../services/mapbox_service.dart';
 import '../models/location_model.dart';
 import '../services/ors_service.dart';
-import 'dart:ui';
-import 'home_page.dart';
-
-// Assuming LocationModel updated to include: double? bearing;
-// In LocationController (if not already):
-// Stream<LocationModel> get locationStream => geolocationService.location.onLocationChanged.map((data) => LocationModel(
-//   latitude: data.latitude!,
-//   longitude: data.longitude!,
-//   bearing: data.heading,
-// ));
+import '../views/voice_packs_page.dart';
 
 class MapPage extends StatefulWidget {
-  const MapPage({super.key});
+  final VoicePack? selectedVoice;
+  const MapPage({super.key, this.selectedVoice});
 
   @override
   State<MapPage> createState() => _MapPageState();
 }
 
 class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
-  int _selectedIndex = 1;
   bool isDark = false;
   late AnimationController _animationController;
   late AnimationController _pulseController;
@@ -43,10 +33,12 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
   late Animation<double> _pulseAnimation;
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
+  VoicePack? _selectedVoice;
 
   @override
   void initState() {
     super.initState();
+    _selectedVoice = widget.selectedVoice;
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 800),
       vsync: this,
@@ -55,12 +47,10 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
       duration: const Duration(seconds: 2),
       vsync: this,
     )..repeat();
-
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 500),
       vsync: this,
     );
-
     _slideAnimation = CurvedAnimation(
       parent: _animationController,
       curve: Curves.easeOutCubic,
@@ -81,9 +71,8 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
 
     mapController = MapController(mapboxService, directionsService);
     _locationController = LocationController(geolocationService);
-
     _orsService = ORSService(dotenv.env['ORS_API_KEY'] ?? '');
-    _navigationTTS = NavigationTTS();
+    _navigationTTS = NavigationTTS(dotenv.env['ELEVENLABS_API_KEY'] ?? '');
 
     _initializeLocation();
     _animationController.forward();
@@ -96,45 +85,8 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     _fadeController.dispose();
     _searchController.dispose();
     _locationSub?.cancel();
+    _navigationTTS.dispose();
     super.dispose();
-  }
-
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-
-    switch (index) {
-      case 0:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const HomePage()),
-        );
-        break;
-      case 1:
-        break;
-      case 2:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const VoicePacksPage()),
-        );
-        break;
-      case 3:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProfilePage(
-              isDark: isDark,
-              onThemeChanged: (bool value) {
-                setState(() {
-                  isDark = value;
-                });
-              },
-            ),
-          ),
-        );
-        break;
-    }
   }
 
   late final MapController mapController;
@@ -142,7 +94,6 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
   PointAnnotationManager? pointAnnotationManager;
   bool _initialCameraSet = false;
-
   late final ORSService _orsService;
   late final NavigationTTS _navigationTTS;
   List<dynamic> _navigationSteps = [];
@@ -150,13 +101,12 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
   String? _currentInstruction;
   bool _isNavigating = false;
   StreamSubscription<LocationModel>? _locationSub;
-  double? _totalDistance; // NEW: Store total route distance in meters
+  double? _totalDistance;
 
   Future<void> _initializeLocation() async {
     try {
       final location = await _locationController.getCurrentLocation();
       mapController.updateCurrentLocation(location);
-
       if (mapController.mapboxMap != null && !_initialCameraSet) {
         await mapController.centerToCurrentLocation();
         _initialCameraSet = true;
@@ -168,18 +118,13 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
 
   void _onMapCreated(MapboxMap mapboxMap) async {
     mapController.mapboxMap = mapboxMap;
-
-    // Enable user location puck
     await mapboxMap.location.updateSettings(
       LocationComponentSettings(
         enabled: true,
         pulsingEnabled: true,
         puckBearingEnabled: true,
-        // puckBearingSource: PuckBearingSource.HEADING,
-        // For 3D puck: locationPuck: LocationPuck(locationPuck3D: LocationPuck3D(modelUri: 'your_model_uri')),
       ),
     );
-
     if (mapController.state.currentLocation != null && !_initialCameraSet) {
       mapController.centerToCurrentLocation();
       _initialCameraSet = true;
@@ -192,16 +137,14 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
       _navigationSteps = [];
       _currentStepIndex = 0;
       _currentInstruction = null;
-      _totalDistance = null; // NEW: Initialize distance
+      _totalDistance = null;
     });
-    _fadeController.forward(); // Animate nav card in
+    _fadeController.forward();
 
     try {
       final currentLoc = mapController.state.currentLocation;
       if (currentLoc == null) throw Exception('Current location not available');
 
-      // NEW: Assuming ORSService.getRouteDetails returns {'steps': List<dynamic>, 'distance': double}
-      // If getRouteSteps only returns steps, sum step['distance'] below
       final routeDetails = await _orsService.getRouteSteps(
         startLat: currentLoc.latitude,
         startLng: currentLoc.longitude,
@@ -209,10 +152,10 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
         endLng: destination.longitude,
       );
       setState(() {
-        _navigationSteps = routeDetails ?? [];
+        _navigationSteps = routeDetails;
         _totalDistance = _navigationSteps.fold<double>(
           0.0,
-          (sum, step) => sum + (step['distance'] ?? 0.0),
+          (sum, step) => sum + ((step['distance'] as num?)?.toDouble() ?? 0.0),
         );
         _currentStepIndex = 0;
         _currentInstruction = _navigationSteps.isNotEmpty
@@ -220,25 +163,20 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
             : null;
       });
       if (_currentInstruction != null) {
-        await _navigationTTS.speak(_currentInstruction!);
+        try {
+          await _navigationTTS.speak(
+            _currentInstruction!,
+            _selectedVoice?.elevenLabsVoiceId ?? 'pNInz6obpgDQGcFmaJgB',
+          );
+        } catch (e) {
+          _showSnackBar('Error speaking instruction: $e');
+        }
       }
 
-      // Alternative if getRouteDetails not available:
-      // final steps = await _orsService.getRouteSteps(...);
-      // double totalDist = steps.fold(0.0, (sum, step) => sum + (step['distance'] ?? 0.0));
-      // setState(() {
-      //   _navigationSteps = steps;
-      //   _totalDistance = totalDist;
-      //   ...
-      // });
-
-      // Start listening to location for camera follow and step progress
       _locationSub = _locationController.locationStream.listen((
         location,
       ) async {
         mapController.updateCurrentLocation(location);
-
-        // Smooth camera follow with tilt and bearing
         await mapController.mapboxMap?.easeTo(
           CameraOptions(
             center: Point(
@@ -251,22 +189,17 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
           MapAnimationOptions(duration: 1000),
         );
 
-        // Optional: Log for analytics (e.g., send to Firebase)
-        // analytics.logEvent(name: 'location_update', parameters: {'lat': location.latitude, 'lng': location.longitude});
-
-        // Check navigation progress
         if (_navigationSteps.isNotEmpty &&
             _currentStepIndex < _navigationSteps.length) {
           final nextManeuver =
-              _navigationSteps[_currentStepIndex]['maneuver']['location']; // [lng, lat]
+              _navigationSteps[_currentStepIndex]['maneuver']['location'];
           final dist = _calculateDistance(
             location.latitude,
             location.longitude,
-            nextManeuver[1], // lat
-            nextManeuver[0], // lng
+            nextManeuver[1],
+            nextManeuver[0],
           );
           if (dist < 30.0) {
-            // Threshold in meters
             _nextNavigationStep();
           }
         }
@@ -285,10 +218,24 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
         _currentInstruction =
             _navigationSteps[_currentStepIndex]['instruction'];
       });
-      await _navigationTTS.speak(_currentInstruction!);
+      try {
+        await _navigationTTS.speak(
+          _currentInstruction!,
+          _selectedVoice?.elevenLabsVoiceId ?? 'pNInz6obpgDQGcFmaJgB',
+        );
+      } catch (e) {
+        _showSnackBar('Error speaking instruction: $e');
+      }
     } else {
       _stopNavigation();
-      await _navigationTTS.speak('You have arrived at your destination.');
+      try {
+        await _navigationTTS.speak(
+          'You have arrived at your destination.',
+          _selectedVoice?.elevenLabsVoiceId ?? 'pNInz6obpgDQGcFmaJgB',
+        );
+      } catch (e) {
+        _showSnackBar('Error speaking arrival message: $e');
+      }
     }
   }
 
@@ -298,11 +245,10 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
       _navigationSteps = [];
       _currentInstruction = null;
       _currentStepIndex = 0;
-      _totalDistance = null; // NEW: Reset distance
+      _totalDistance = null;
     });
     _fadeController.reverse();
     _locationSub?.cancel();
-    // Reset camera to default if needed
     mapController.centerToCurrentLocation();
   }
 
@@ -312,7 +258,7 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     double lat2,
     double lon2,
   ) {
-    const R = 6371000.0; // Earth radius in meters
+    const R = 6371000.0;
     final dLat = _degToRad(lat2 - lat1);
     final dLon = _degToRad(lon2 - lon1);
     final a =
@@ -331,10 +277,11 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.black87,
+        backgroundColor: Colors.red,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 5),
       ),
     );
   }
@@ -527,7 +474,6 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
   }
 
   Widget _buildNavigationCard() {
-    // NEW: Format total distance in kilometers
     final distanceKm = _totalDistance != null
         ? (_totalDistance! / 1000).toStringAsFixed(1)
         : 'Calculating';
@@ -567,7 +513,6 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                 ],
               ),
               const SizedBox(height: 8),
-              // NEW: Display estimated distance
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -646,12 +591,31 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
             ),
           ),
           centerTitle: true,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.headphones),
+              tooltip: 'Select Voice',
+              onPressed: () async {
+                final selected = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => VoicePacksPage(isDark: isDark),
+                  ),
+                );
+                if (selected != null && selected is VoicePack) {
+                  setState(() {
+                    _selectedVoice = selected;
+                  });
+                  _showSnackBar('Voice changed to: ${selected.artist}');
+                }
+              },
+            ),
+          ],
         ),
         body: Consumer<MapController>(
           builder: (context, controller, child) {
             return Stack(
               children: [
-                // Map with modern styling
                 MapWidget(
                   textureView: true,
                   onMapCreated: _onMapCreated,
@@ -668,26 +632,19 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                   ),
                   styleUri: isDark ? MapboxStyles.DARK : MapboxStyles.LIGHT,
                 ),
-
-                // Conditional UI based on navigation state
                 if (!_isNavigating) ...[
-                  // Modern search bar
                   Positioned(
                     top: 100,
                     left: 16,
                     right: 16,
                     child: _buildModernSearchBar(),
                   ),
-
-                  // Action buttons
                   Positioned(
                     bottom: 120,
                     right: 16,
                     child: _buildActionButtons(),
                   ),
                 ],
-
-                // Navigation dialog (top-positioned)
                 if (_isNavigating && _currentInstruction != null)
                   Positioned(
                     top: 100,
@@ -698,11 +655,6 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
               ],
             );
           },
-        ),
-        bottomNavigationBar: CustomBottomNav(
-          currentIndex: _selectedIndex,
-          onTap: _onItemTapped,
-          isDark: isDark,
         ),
       ),
     );

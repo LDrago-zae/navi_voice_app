@@ -7,6 +7,7 @@ class VoicePack {
   final String description;
   final bool isPremium;
   final bool isOwned;
+  final String elevenLabsVoiceId;
 
   VoicePack({
     required this.artist,
@@ -17,68 +18,57 @@ class VoicePack {
     required this.description,
     required this.isPremium,
     required this.isOwned,
+    required this.elevenLabsVoiceId,
   });
 
   static List<VoicePack> allVoicePacks = [
     VoicePack(
-      artist: 'Gal Gadot',
-      category: 'Celebrity',
-      price: '6.99',
-      rating: 4.9,
-      downloads: '1.2M',
-      description: 'Wonder Woman\'s voice for your adventures',
-      isPremium: true,
-      isOwned: false,
-    ),
-    VoicePack(
-      artist: 'Morgan Freeman',
-      category: 'Celebrity',
-      price: '7.99',
+      artist: 'Bill',
+      category: 'Professional',
+      price: '0.00',
       rating: 4.8,
-      downloads: '980K',
-      description: 'The legendary narrator\'s calming voice',
-      isPremium: true,
-      isOwned: true,
-    ),
-    VoicePack(
-      artist: 'Siri Enhanced',
-      category: 'Character',
-      price: '3.99',
-      rating: 4.7,
-      downloads: '2.1M',
-      description: 'Enhanced AI assistant voice',
-      isPremium: false,
-      isOwned: false,
-    ),
-    VoicePack(
-      artist: 'British Navigator',
-      category: 'Language',
-      price: '2.99',
-      rating: 4.6,
       downloads: '1.5M',
-      description: 'Proper British accent for navigation',
+      description: 'A clear, professional male voice for navigation.',
       isPremium: false,
-      isOwned: false,
+      isOwned: true,
+      elevenLabsVoiceId:
+          'pNInz6obpgDQGcFmaJgB', // Default ElevenLabs voice (Bill)
     ),
     VoicePack(
-      artist: 'Ryan Reynolds',
-      category: 'Celebrity',
-      price: '8.99',
+      artist: 'Lily',
+      category: 'Professional',
+      price: '0.00',
+      rating: 4.7,
+      downloads: '1.2M',
+      description: 'A warm, friendly female voice for guidance.',
+      isPremium: false,
+      isOwned: true,
+      elevenLabsVoiceId:
+          'Xb7hH8MSUJpSbSDYk0k2', // Default ElevenLabs voice (Lily)
+    ),
+    VoicePack(
+      artist: 'Drew',
+      category: 'Professional',
+      price: '4.99',
       rating: 4.9,
-      downloads: '850K',
-      description: 'Witty and entertaining navigation',
+      downloads: '980K',
+      description: 'A confident male voice with a modern tone.',
       isPremium: true,
       isOwned: false,
+      elevenLabsVoiceId:
+          'N2lVS1w4EtoT3dr4eOWO', // Default ElevenLabs voice (Drew)
     ),
     VoicePack(
-      artist: 'JARVIS AI',
+      artist: 'Molly',
       category: 'Character',
-      price: '5.99',
+      price: '5.99',
       rating: 4.8,
-      downloads: '1.8M',
-      description: 'Iron Man\'s AI assistant',
-      isPremium: false,
+      downloads: '850K',
+      description: 'A lively, expressive female voice for fun navigation.',
+      isPremium: true,
       isOwned: false,
+      elevenLabsVoiceId:
+          'pqHfZKP75CvOlQylNhV4', // Default ElevenLabs voice (Molly)
     ),
   ];
 }

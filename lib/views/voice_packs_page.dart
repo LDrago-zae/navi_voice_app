@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:navi_voice_app/views/profile_page.dart';
-import 'package:navi_voice_app/views/widgets/custom_bottom_nav.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../utils/constants.dart';
 import '../models/voice_pack.dart';
+import '../services/eleven_labs_service.dart';
+import '../services/navigation_tts.dart';
 import 'widgets/voice_pack_card.dart';
-import 'home_page.dart';
-import 'map_page.dart';
 
 class VoicePacksPage extends StatefulWidget {
   final bool isDark;
@@ -24,8 +23,7 @@ class _VoicePacksPageState extends State<VoicePacksPage> {
 
 class _VoicePacksPageContent extends StatefulWidget {
   final bool isDark;
-
-  const _VoicePacksPageContent({super.key, required this.isDark});
+  const _VoicePacksPageContent({required this.isDark});
 
   @override
   State<_VoicePacksPageContent> createState() => _VoicePacksPageContentState();
@@ -33,61 +31,35 @@ class _VoicePacksPageContent extends StatefulWidget {
 
 class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
   String _selectedCategory = 'All';
-  int _selectedIndex = 2;
   bool isDark = false;
+  late ElevenLabsService _elevenLabsService;
+  late NavigationTTS _navigationTTS;
+  VoicePack? _selectedVoice; // Track the currently selected voice
 
   @override
   void initState() {
     super.initState();
     isDark = widget.isDark;
-  }
-
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-
-    switch (index) {
-      case 0:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const HomePage()),
-        );
-        break;
-      case 1:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const MapPage()),
-        );
-        break;
-      case 2:
-        // Stay on Voice Packs
-        break;
-      case 3:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProfilePage(
-              isDark: isDark,
-              onThemeChanged: (bool value) {
-                setState(() {
-                  isDark = value;
-                });
-              },
-            ),
-          ),
-        );
-        break;
+    final apiKey = dotenv.env['ELEVENLABS_API_KEY'] ?? '';
+    print(
+      'VoicePacksPage: Initializing with API key: ${apiKey.isNotEmpty ? '${apiKey.substring(0, 10)}...' : 'EMPTY'}',
+    );
+    if (apiKey.isEmpty) {
+      print(
+        'VoicePacksPage: WARNING - No ElevenLabs API key found in .env file!',
+      );
     }
+    _elevenLabsService = ElevenLabsService(apiKey);
+    _navigationTTS = NavigationTTS(apiKey);
   }
 
-  final List<String> _categories = [
-    'All',
-    'Celebrity',
-    'Character',
-    'Language',
-    'Premium',
-  ];
+  @override
+  void dispose() {
+    _navigationTTS.dispose();
+    super.dispose();
+  }
+
+  final List<String> _categories = ['All', 'Professional', 'Character'];
 
   List<VoicePack> get _filteredVoicePacks {
     if (_selectedCategory == 'All') {
@@ -98,13 +70,151 @@ class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
         .toList();
   }
 
+  Future<void> _testElevenLabs() async {
+    try {
+      print('Testing ElevenLabs connection...');
+      final apiKey = dotenv.env['ELEVENLABS_API_KEY'] ?? '';
+      if (apiKey.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No API key found! Please add ELEVENLABS_API_KEY to .env file',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      final success = await _elevenLabsService.testConnection();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            success
+                ? 'ElevenLabs connection successful!'
+                : 'ElevenLabs connection failed. Check API key.',
+          ),
+          backgroundColor: success ? Colors.green : Colors.red,
+        ),
+      );
+    } catch (e) {
+      print('ElevenLabs test error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('ElevenLabs test error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _selectVoice(VoicePack voicePack) async {
+    try {
+      print('Selecting voice for artist: ${voicePack.artist}');
+      print('Voice pack voice ID: ${voicePack.elevenLabsVoiceId}');
+      final apiKey = dotenv.env['ELEVENLABS_API_KEY'] ?? '';
+      if (apiKey.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No API key found! Please add ELEVENLABS_API_KEY to .env file',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      // Show dialog for confirmation
+      final result = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Select Voice'),
+          content: Text(
+            'Do you want to use "${voicePack.artist}" for navigation?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Select'),
+            ),
+          ],
+        ),
+      );
+      if (result == true) {
+        // Speak the voice name as feedback
+        await _navigationTTS.speak(
+          voicePack.artist,
+          voicePack.elevenLabsVoiceId,
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Voice selected: ${voicePack.artist}'),
+            backgroundColor: Colors.blue,
+          ),
+        );
+        setState(() {
+          _selectedVoice = voicePack;
+        });
+        // Pop and return the selected voice to the previous page (MapPage)
+        Navigator.pop(context, voicePack);
+      }
+    } catch (e) {
+      print('Voice selection error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Voice selection failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _testVoice(VoicePack voicePack) async {
+    try {
+      print('Testing voice for artist: ${voicePack.artist}');
+      print('Voice pack voice ID: ${voicePack.elevenLabsVoiceId}');
+      final apiKey = dotenv.env['ELEVENLABS_API_KEY'] ?? '';
+      if (apiKey.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No API key found! Please add ELEVENLABS_API_KEY to .env file',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      // Speak the voice name
+      await _navigationTTS.speak(voicePack.artist, voicePack.elevenLabsVoiceId);
+      // Show snackbar with voice name
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Voice selected: ${voicePack.artist}'),
+          backgroundColor: Colors.blue,
+        ),
+      );
+    } catch (e) {
+      print('Voice test error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Voice test failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
     final bg = AppColors.getBackground(isDark);
     final textPrimary = AppColors.getTextPrimary(isDark);
     final card = AppColors.getCardColor(isDark);
-    final cardShadow = AppColors.getCardShadow(isDark);
+
     return Scaffold(
       backgroundColor: bg,
       appBar: AppBar(
@@ -112,10 +222,10 @@ class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
         elevation: 0,
         leading: IconButton(
           icon: Icon(Icons.arrow_back, color: textPrimary),
-          onPressed: () => Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const HomePage()),
-          ),
+          onPressed: () {
+            // Return the selected voice to MapPage when navigating back
+            Navigator.pop(context, _selectedVoice);
+          },
         ),
         title: Text(
           'Voice Packs',
@@ -141,7 +251,6 @@ class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
           child: Column(
             children: [
-              // Featured Voice Pack Card
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -182,7 +291,7 @@ class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
                               ),
                               SizedBox(height: 2),
                               Text(
-                                'Celebrity Collection',
+                                'Professional Collection',
                                 style: TextStyle(
                                   color: Colors.white70,
                                   fontSize: 14,
@@ -195,34 +304,60 @@ class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'Get 3 premium celebrity voices for the price of 2!',
+                      'Get premium voices for enhanced navigation!',
                       style: TextStyle(color: Colors.white, fontSize: 14),
                     ),
                     const SizedBox(height: 12),
-                    ElevatedButton(
-                      onPressed: () {},
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: AppColors.primary,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {},
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: AppColors.primary,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 8,
+                              ),
+                            ),
+                            child: const Text(
+                              'View Bundle',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
                         ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 8,
+                        const SizedBox(width: 12),
+                        ElevatedButton(
+                          onPressed: _testElevenLabs,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                          ),
+                          child: const Text(
+                            'Test ElevenLabs',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
                         ),
-                      ),
-                      child: const Text(
-                        'View Bundle',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
+                      ],
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 24),
-
-              // Category Filter
               SizedBox(
                 height: 45,
                 child: ListView.builder(
@@ -231,7 +366,6 @@ class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
                   itemBuilder: (context, index) {
                     final category = _categories[index];
                     final isSelected = category == _selectedCategory;
-
                     return Container(
                       margin: const EdgeInsets.only(right: 12),
                       child: FilterChip(
@@ -264,8 +398,6 @@ class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
                 ),
               ),
               const SizedBox(height: 20),
-
-              // Voice Packs Grid
               GridView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
@@ -280,17 +412,17 @@ class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
                 itemCount: _filteredVoicePacks.length,
                 itemBuilder: (context, index) {
                   final pack = _filteredVoicePacks[index];
-                  return VoicePackCard(voicePack: pack, isDark: isDark);
+                  return VoicePackCard(
+                    voicePack: pack,
+                    isDark: isDark,
+                    onTestVoice: () => _testVoice(pack),
+                    onVoiceSelectedWithPack: () => _selectVoice(pack),
+                  );
                 },
               ),
             ],
           ),
         ),
-      ),
-      bottomNavigationBar: CustomBottomNav(
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        isDark: isDark,
       ),
     );
   }

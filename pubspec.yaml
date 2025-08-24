@@ -48,6 +48,7 @@ dependencies:
   mapbox_kit_navigation: ^0.0.1
   flutter_tts: ^4.2.3
   just_audio: ^0.10.4
+  http: ^1.1.0
 
 
 dev_dependencies:

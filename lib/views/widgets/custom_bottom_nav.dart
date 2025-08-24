@@ -36,43 +36,62 @@ class CustomBottomNav extends StatelessWidget {
       ),
       child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 15.0, vertical: 8),
+          padding: EdgeInsets.symmetric(
+            horizontal: MediaQuery.of(context).size.width > 600 ? 20.0 : 10.0,
+            vertical: 8,
+          ),
           child: GNav(
             rippleColor: selected.withValues(alpha: 0.1),
             hoverColor: selected.withValues(alpha: 0.05),
-            gap: 10,
+            gap: MediaQuery.of(context).size.width > 600 ? 12 : 8,
             activeColor: selected,
-            iconSize: 24,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            iconSize: MediaQuery.of(context).size.width > 600 ? 24 : 20,
+            padding: EdgeInsets.symmetric(
+              horizontal: MediaQuery.of(context).size.width > 600 ? 24 : 16,
+              vertical: MediaQuery.of(context).size.width > 600 ? 14 : 10,
+            ),
             duration: const Duration(milliseconds: 400),
             tabBackgroundColor: selected.withValues(alpha: 0.1),
             color: unselected,
             selectedIndex: currentIndex,
             onTabChange: onTap,
-            tabs: const [
+            tabs: [
               GButton(
                 icon: Icons.home,
-                iconSize: 20,
+                iconSize: MediaQuery.of(context).size.width > 600 ? 20 : 18,
                 text: 'Home',
-                textStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                textStyle: TextStyle(
+                  fontSize: MediaQuery.of(context).size.width > 600 ? 12 : 10,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               GButton(
                 icon: FontAwesomeIcons.map,
-                iconSize: 20,
+                iconSize: MediaQuery.of(context).size.width > 600 ? 20 : 18,
                 text: 'Maps',
-                textStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                textStyle: TextStyle(
+                  fontSize: MediaQuery.of(context).size.width > 600 ? 12 : 10,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               GButton(
                 icon: FontAwesomeIcons.headphones,
-                iconSize: 20,
+                iconSize: MediaQuery.of(context).size.width > 600 ? 20 : 18,
                 text: 'Voice Packs',
-                textStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                textStyle: TextStyle(
+                  fontSize: MediaQuery.of(context).size.width > 600 ? 12 : 10,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
+
               GButton(
                 icon: FontAwesomeIcons.person,
-                iconSize: 20,
+                iconSize: MediaQuery.of(context).size.width > 600 ? 20 : 18,
                 text: 'Profile',
-                textStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                textStyle: TextStyle(
+                  fontSize: MediaQuery.of(context).size.width > 600 ? 12 : 10,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
