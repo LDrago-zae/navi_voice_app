@@ -398,17 +398,15 @@ class _VoicePacksPageContentState extends State<_VoicePacksPageContent> {
                 ),
               ),
               const SizedBox(height: 20),
-              GridView.builder(
+              ListView.builder(
+                scrollDirection: Axis.vertical,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16.0,
+                  vertical: 8.0,
+                ),
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: MediaQuery.of(context).size.width > 600
-                      ? 3
-                      : 2,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 0.75,
-                ),
+                itemExtent: 300,
                 itemCount: _filteredVoicePacks.length,
                 itemBuilder: (context, index) {
                   final pack = _filteredVoicePacks[index];
